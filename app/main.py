@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.api.routers import menu_router
+from app.api.routers import menu_router, images_router
 from app.db.config import get_database_settings
 
 
@@ -41,3 +41,4 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(title="Rybaltika API", lifespan=lifespan)
 app.include_router(menu_router)
+app.include_router(images_router)
