@@ -2,3 +2,7 @@
 .env
 __pycache__/
 *.py[cd]
+demo.db
+.pytest_cache/
+node_modules/
+test-results/
