@@ -22,3 +22,11 @@ class DishCreate(BaseModel):
     price: Decimal
     image_url: str | None
     is_available: bool = True
+
+class CategoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    sort_order: int
+    dish_count: int
+    image_url: str | None
