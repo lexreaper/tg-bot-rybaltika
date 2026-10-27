@@ -2,18 +2,13 @@
   'use strict';
   const root = document.querySelector('#app');
   const config = window.APP_CONFIG || {};
-  const base = (config.apiBaseUrl || '').replace(/\/$/, '');
+  const {escape, imageUrl, ApiError, request} = window.RybaltikaAPI;
   const tg = window.Telegram?.WebApp;
   let controller, generation = 0, parentCategory = null;
   const queries = new Map(), scrolls = new Map();
   let currentHash = location.hash || '#/';
-  const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const money = value => new Intl.NumberFormat('ru-RU', {style:'currency',currency:'RUB',maximumFractionDigits:2}).format(Number(value));
   const countLabel = n => `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'блюдо' : n % 10 >= 2 && n % 10 <= 4 && !(n % 100 >= 12 && n % 100 <= 14) ? 'блюда' : 'блюд'}`;
-  function imageUrl(value) {
-    if (!value) return '';
-    try { const url = new URL(value, base ? `${base}/` : location.origin); return ['https:', 'http:'].includes(url.protocol) ? url.href : ''; } catch { return ''; }
-  }
   const placeholder = '<div class="no-photo-label"><span aria-hidden="true">≈</span>Фото скоро появится</div>';
   function photo(item, lazy = true) {
     const url = imageUrl(item.image_url);
@@ -29,24 +24,6 @@
       if (img.complete && !img.naturalWidth) fallback();
     });
   }
-  class ApiError extends Error { constructor(message, status) { super(message); this.status = status; } }
-  async function request(path, signal) {
-    const local = new AbortController();
-    let timeout = false;
-    const abort = () => local.abort();
-    signal?.addEventListener('abort', abort, {once:true});
-    if (signal?.aborted) local.abort();
-    const timer = setTimeout(() => { timeout = true; local.abort(); }, config.requestTimeoutMs || 10000);
-    try {
-      const response = await fetch(`${base}${path}`, {signal:local.signal,headers:{Accept:'application/json'},cache:'no-store'});
-      if (!response.ok) throw new ApiError(response.status === 404 ? 'Этой страницы меню больше нет.' : 'Сервер временно недоступен.', response.status);
-      return await response.json();
-    } catch (error) {
-      if (timeout) throw new ApiError('Сервер отвечает слишком долго. Попробуйте ещё раз.');
-      if (error.name === 'AbortError' || error instanceof ApiError) throw error;
-      throw new ApiError('Не удалось получить меню. Проверьте соединение и попробуйте ещё раз.');
-    } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
-  }
   function validateCategories(data) {
     if (!Array.isArray(data) || data.some(c => !Number.isInteger(c.id) || c.id < 1 || typeof c.name !== 'string' || !Number.isInteger(c.dish_count) || c.dish_count < 0)) throw new ApiError('Сервер вернул некорректные категории.');
     return data;
@@ -57,7 +34,7 @@
   }
   function loading() {
     root.setAttribute('aria-busy','true');
-    root.innerHTML = '<div role="status"><span class="sr-only">Загружаем меню</span><div class="loading-title"></div><div class="category-grid"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></div>';
+    root.innerHTML = '<div role="status"><span class="sr-only">Загружаем раздел</span><div class="loading-title"></div><div class="category-grid"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div></div>';
   }
   function categoriesPage(categories) {
     root.innerHTML = `<section class="intro"><div class="eyebrow">Просто. Свежо. Со вкусом.</div><h1>Хороший вкус<br>начинается здесь.</h1><p>Любимая рыба, свежие продукты и немного вдохновения. Выберите что-то своё.</p></section><div class="section-heading"><h2>Наше меню</h2><span class="count">${categories.length} разделов</span></div><div class="category-grid">${categories.map((c,i) => `<a class="category ${imageUrl(c.image_url) ? '' : 'no-photo'}" href="#/category/${c.id}">${imageUrl(c.image_url) ? photo(c) : `<span class="category-symbol" aria-hidden="true">${['≈','✳','◡','◌','∿'][i%5]}</span>`}<div class="category-info"><div><h3>${escape(c.name)}</h3><small>${countLabel(c.dish_count)}</small></div><span class="round-arrow" aria-hidden="true">↗</span></div></a>`).join('')}</div>${categories.length ? '' : '<div class="state"><h2>Меню скоро появится</h2><p>Мы ещё заполняем разделы. Загляните чуть позже.</p></div>'}`;
@@ -101,6 +78,15 @@
     tg.onEvent?.('safeAreaChanged',safeArea); tg.onEvent?.('contentSafeAreaChanged',safeArea);
     if(tg.isVersionAtLeast?.('6.1')) tg.BackButton?.onClick(back);
   }
+  const content = window.RybaltikaContent.create({root,photo});
+  const endpoints = {events:'/events',vacancies:'/vacancies',loyalty:'/loyalty',...config.endpoints};
+  function updateNavigation(hash) {
+    const section = hash.startsWith('#/events') ? 'events' : hash.startsWith('#/vacancies') ? 'vacancies' : hash.startsWith('#/loyalty') ? 'loyalty' : 'menu';
+    document.querySelectorAll('.main-nav a').forEach(link => {
+      if(link.dataset.section === section) link.setAttribute('aria-current','page');
+      else link.removeAttribute('aria-current');
+    });
+  }
   async function route() {
     const ticket=++generation;
     controller?.abort();controller=new AbortController();
@@ -109,6 +95,7 @@
     if(hash!==currentHash) { scrolls.set(currentHash,window.scrollY); currentHash=hash; }
     let match;
     if(tg?.isVersionAtLeast?.('6.1')) hash==='#/' ? tg.BackButton?.hide() : tg.BackButton?.show();
+    updateNavigation(hash);
     loading();
     try {
       if(hash==='#/' || hash==='#') {
@@ -127,7 +114,13 @@
         if(ticket!==generation)return;
         detailPage(dish);
       }
-      else throw new ApiError('Такой страницы меню нет.',404);
+      else if(['#/events','#/vacancies','#/loyalty'].includes(hash)) {
+        const section=hash.slice(2);
+        const data=await request(endpoints[section],signal);
+        if(ticket!==generation)return;
+        content[section](data);
+      }
+      else throw new ApiError('Такой страницы нет.',404);
       if(ticket!==generation)return;
       attachImageFallbacks();
       document.title=`${root.querySelector('h1')?.innerText.replace(/\s+/g,' ')||'Меню'} · Рыбалтика`;
@@ -136,7 +129,7 @@
     } catch(error) {
       if(error.name==='AbortError' || ticket!==generation)return;
       const missing=error.status===404;
-      root.innerHTML=`<section class="state" role="alert"><div class="state-icon" aria-hidden="true">${missing?'∅':'≈'}</div><h1>${missing?'Не нашли в меню':'Не удалось загрузить меню'}</h1><p>${escape(error.message)}</p>${missing?'<a class="primary" href="#/">К категориям</a>':'<button class="primary" id="retry">Попробовать снова</button>'}<p><a class="back" href="#/">← Все категории</a></p></section>`;
+      root.innerHTML=`<section class="state" role="alert"><div class="state-icon" aria-hidden="true">${missing?'∅':'≈'}</div><h1>${missing?'Не нашли страницу':'Не удалось загрузить раздел'}</h1><p>${escape(error.message)}</p>${missing?'<a class="primary" href="#/">К меню</a>':'<button class="primary" id="retry">Попробовать снова</button>'}<p><a class="back" href="#/">← К меню</a></p></section>`;
       root.querySelector('#retry')?.addEventListener('click',route);
     } finally { if(ticket===generation)root.setAttribute('aria-busy','false'); }
   }
