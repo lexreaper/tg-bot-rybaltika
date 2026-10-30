@@ -1,10 +1,11 @@
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, select
+import sqlalchemy as sa
+from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.db.content import Event, LoyaltyPage, Vacancy
+from app.db.model import Event, LoyaltyInfo, Vacancy
 from app.db.session import get_session
 from app.main import app
 from app.settings import get_app_settings
@@ -40,7 +41,7 @@ def test_empty_lists_and_unpublished_page(client):
     from sqlalchemy import update
     async def hide():
         async with app.state.session_factory() as session:
-            for model in [Event,Vacancy,LoyaltyPage]:
+            for model in [Event, Vacancy, LoyaltyInfo]:
                 await session.execute(update(model).values(is_published=False))
             await session.commit()
     client.portal.call(hide)
@@ -108,7 +109,10 @@ def test_create_loyalty_in_empty_database(client,monkeypatch):
     from sqlalchemy import delete
     async def clear_page():
         async with app.state.session_factory() as session:
-            await session.execute(delete(LoyaltyPage));await session.commit()
+            await session.execute(
+                delete(LoyaltyInfo).where(LoyaltyInfo.key == "loyalty")
+            )
+            await session.commit()
     client.portal.call(clear_page)
     assert client.get('/loyalty').json() is None
     assert client.get('/admin/loyalty',headers=headers).json()['version']==0
@@ -128,7 +132,10 @@ def test_new_sections_handle_database_errors(client,endpoint):
     assert 'credentials' not in response.text
 
 
-def test_existing_schema_migrates_without_losing_menu(tmp_path,monkeypatch):
+@pytest.mark.parametrize("legacy_table_names", [False, True])
+def test_existing_schema_migrates_without_losing_menu(
+    tmp_path, monkeypatch, legacy_table_names
+):
     from app.db.config import get_database_settings
     for name in ['DB_HOST','DB_NAME','DB_USER','DB_PASSWORD']:
         monkeypatch.setenv(name,'test-placeholder')
@@ -139,10 +146,100 @@ def test_existing_schema_migrates_without_losing_menu(tmp_path,monkeypatch):
             config=Config('alembic.ini');config.attributes['connection']=connection
             command.upgrade(config,'70093c39af40')
             connection.exec_driver_sql("INSERT INTO categories (id,name,sort_order) VALUES (1,'Сохраняем меню',0)")
+            event_table = "events" if legacy_table_names else "site_events"
+            vacancy_table = "vacancies" if legacy_table_names else "site_vacancies"
+            connection.exec_driver_sql(
+                f"CREATE TABLE {event_table} ("
+                "id INTEGER PRIMARY KEY, title VARCHAR(160) NOT NULL, "
+                "description TEXT NOT NULL, event_date DATE NOT NULL, "
+                "image_url VARCHAR, is_published BOOLEAN NOT NULL)"
+            )
+            connection.exec_driver_sql(
+                f"INSERT INTO {event_table} VALUES "
+                "(1, 'Старое мероприятие', 'Описание', '2030-05-04', '/event.jpg', 1)"
+            )
+            connection.exec_driver_sql(
+                f"CREATE TABLE {vacancy_table} ("
+                "id INTEGER PRIMARY KEY, position VARCHAR(160) NOT NULL, "
+                "description TEXT NOT NULL, salary VARCHAR(200), "
+                "is_published BOOLEAN NOT NULL)"
+            )
+            connection.exec_driver_sql(
+                f"INSERT INTO {vacancy_table} VALUES "
+                "(1, 'Старая вакансия', 'Описание', 'от 50 000', 1)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE loyalty_page ("
+                "id INTEGER PRIMARY KEY, title VARCHAR(120) NOT NULL, "
+                "summary VARCHAR(300) NOT NULL, body TEXT NOT NULL, "
+                "is_published BOOLEAN NOT NULL, version INTEGER NOT NULL, "
+                "updated_at DATETIME NOT NULL)"
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO loyalty_page VALUES "
+                "(1, 'Старая лояльность', 'Кратко', 'Полный текст', 1, 4, "
+                "'2030-05-01 10:00:00')"
+            )
             command.upgrade(config,'head')
             assert connection.exec_driver_sql('SELECT name FROM categories WHERE id=1').scalar_one()=='Сохраняем меню'
-            assert connection.exec_driver_sql('SELECT count(*) FROM events').scalar_one()==0
-            assert connection.exec_driver_sql('SELECT count(*) FROM vacancies').scalar_one()==0
-            assert connection.exec_driver_sql('SELECT count(*) FROM loyalty_page').scalar_one()==0
+            assert connection.exec_driver_sql(
+                "SELECT title FROM events WHERE is_published = 1"
+            ).scalar_one() == "Старое мероприятие"
+            assert connection.exec_driver_sql(
+                "SELECT title FROM vacancies WHERE is_published = 1"
+            ).scalar_one() == "Старая вакансия"
+            assert connection.exec_driver_sql(
+                "SELECT title, summary, content, version FROM loyalty_info "
+                "WHERE key = 'loyalty'"
+            ).one() == ("Старая лояльность", "Кратко", "Полный текст", 4)
+            table_names = set(sa.inspect(connection).get_table_names())
+            assert not {"site_events", "site_vacancies", "loyalty_page"} & table_names
+            assert not {"users", "bookings", "reviews"} & table_names
     finally:
         engine.dispose();get_database_settings.cache_clear()
+
+
+def test_head_migration_repairs_loyalty_columns_missing_from_applied_revision(
+    tmp_path, monkeypatch
+):
+    from app.db.config import get_database_settings
+
+    for name in ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD"]:
+        monkeypatch.setenv(name, "test-placeholder")
+    get_database_settings.cache_clear()
+    engine = create_engine(f"sqlite:///{tmp_path}/stale-head.db")
+    try:
+        with engine.begin() as connection:
+            config = Config("alembic.ini")
+            config.attributes["connection"] = connection
+            command.upgrade(config, "20261030_0003")
+            connection.exec_driver_sql(
+                "INSERT INTO loyalty_info "
+                "(key, title, content, is_published) "
+                "VALUES ('loyalty', 'Сохранённый заголовок', 'Сохранённый текст', 1)"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE loyalty_info DROP COLUMN summary"
+            )
+            connection.exec_driver_sql(
+                "ALTER TABLE loyalty_info DROP COLUMN version"
+            )
+
+            command.upgrade(config, "head")
+
+            row = connection.exec_driver_sql(
+                "SELECT title, content, summary, version "
+                "FROM loyalty_info WHERE key = 'loyalty'"
+            ).one()
+            assert row == (
+                "Сохранённый заголовок",
+                "Сохранённый текст",
+                "",
+                1,
+            )
+            assert connection.exec_driver_sql(
+                "SELECT version_num FROM alembic_version"
+            ).scalar_one() == "20261030_0004"
+    finally:
+        engine.dispose()
+        get_database_settings.cache_clear()

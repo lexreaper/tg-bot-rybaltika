@@ -1,19 +1,31 @@
 from app.db.crud.base import CRUDBase
 from app.db.crud.dish import DishCRUD
-from app.db.model import Booking, Category, Dish, Review, User
+from app.db.crud.hub import (
+    BarCRUD,
+    EventCRUD,
+    LoyaltyInfoCRUD,
+    VacancyCRUD,
+)
+from app.db.model import Bar, Category, Dish, Event, LoyaltyInfo, Vacancy
 
-user_crud = CRUDBase[User](User)
+bar_crud = BarCRUD(Bar)
 category_crud = CRUDBase[Category](Category)
 dish_crud = DishCRUD(Dish)
-booking_crud = CRUDBase[Booking](Booking)
-review_crud = CRUDBase[Review](Review)
+event_crud = EventCRUD(Event)
+vacancy_crud = VacancyCRUD(Vacancy)
+loyalty_info_crud = LoyaltyInfoCRUD(LoyaltyInfo)
 
 __all__ = [
     "CRUDBase",
     "DishCRUD",
-    "user_crud",
+    "BarCRUD",
+    "EventCRUD",
+    "VacancyCRUD",
+    "LoyaltyInfoCRUD",
+    "bar_crud",
     "category_crud",
     "dish_crud",
-    "booking_crud",
-    "review_crud",
+    "event_crud",
+    "vacancy_crud",
+    "loyalty_info_crud",
 ]

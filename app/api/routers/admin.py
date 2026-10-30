@@ -231,12 +231,17 @@ async def admin_get_loyalty_item(
 async def admin_update_loyalty(
     loyalty_id: RecordId, body: LoyaltyInfoUpdate, session: SessionDep
 ) -> LoyaltyInfoRead:
+    existing = await loyalty_info_crud.get(session, loyalty_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Loyalty information not found")
+    changes = sqlalchemy_values(body, exclude_unset=True)
+    changes["version"] = existing.version + 1
     record = await save_or_conflict(
         session,
         loyalty_info_crud.update(
             session,
             loyalty_id,
-            sqlalchemy_values(body, exclude_unset=True),
+            changes,
         ),
     )
     if record is None:

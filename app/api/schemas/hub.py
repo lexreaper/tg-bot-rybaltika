@@ -195,6 +195,7 @@ class LoyaltyInfoRead(ReadSchema):
     id: int
     key: str
     title: str
+    summary: str
     content: str
     terms_url: str | None
     is_published: bool
@@ -209,6 +210,7 @@ class LoyaltyInfoCreate(InputSchema):
         pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
     )
     title: str = Field(min_length=1, max_length=200)
+    summary: str = Field(default="", max_length=300)
     content: str = Field(min_length=1)
     terms_url: AnyHttpUrl | None = None
     is_published: bool = False
@@ -226,6 +228,7 @@ class LoyaltyInfoUpdate(PatchSchema):
         pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
     )
     title: str | None = Field(default=None, min_length=1, max_length=200)
+    summary: str | None = Field(default=None, max_length=300)
     content: str | None = Field(default=None, min_length=1)
     terms_url: AnyHttpUrl | None = None
     is_published: bool | None = None

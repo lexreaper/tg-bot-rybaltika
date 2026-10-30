@@ -8,7 +8,7 @@ class EventRead(BaseModel):
     id: int
     title: str
     description: str
-    date: DateValue = Field(validation_alias='event_date')
+    date: DateValue
     image_url: str | None
 
 
