@@ -1,17 +1,15 @@
-from datetime import date, datetime, time
-from decimal import Decimal
+from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger,
+    Boolean,
     CheckConstraint,
-    Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
-    Numeric,
     String,
     Text,
-    Time,
+    UniqueConstraint,
     func,
     text,
 )
@@ -22,89 +20,123 @@ class Base(DeclarativeBase):
     pass
 
 
-class User(Base):
-    __tablename__ = "users"
+class Bar(Base):
+    __tablename__ = "bars"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
-    username: Mapped[str | None] = mapped_column(String, nullable=True)
-    first_name: Mapped[str | None] = mapped_column(String, nullable=True)
-    last_name: Mapped[str | None] = mapped_column(String, nullable=True)
-    phone: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    website_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    logo_url: Mapped[str | None] = mapped_column(String(2048))
+    is_published: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
-
-    bookings: Mapped[list["Booking"]] = relationship(back_populates="user")
-    reviews: Mapped[list["Review"]] = relationship(back_populates="user")
-
-
-class Category(Base):
-    __tablename__ = "categories"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(String, nullable=False)
     sort_order: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
-
-    dishes: Mapped[list["Dish"]] = relationship(back_populates="category")
-
-
-class Dish(Base):
-    __tablename__ = "dishes"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    category_id: Mapped[int] = mapped_column(
-        ForeignKey("categories.id"), nullable=False
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    name: Mapped[str] = mapped_column(String, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    image_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    is_available: Mapped[bool] = mapped_column(
-        nullable=False, default=True, server_default=text("true")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
-    category: Mapped["Category"] = relationship(back_populates="dishes")
+    events: Mapped[list["Event"]] = relationship(back_populates="bar")
+    vacancies: Mapped[list["Vacancy"]] = relationship(back_populates="bar")
 
 
-class Booking(Base):
-    __tablename__ = "bookings"
+class Event(Base):
+    __tablename__ = "events"
     __table_args__ = (
-        CheckConstraint("guest_count > 0", name="ck_bookings_guest_count_positive"),
         CheckConstraint(
-            "status IN ('pending', 'confirmed', 'cancelled')",
-            name="ck_bookings_status",
+            "ends_at IS NULL OR ends_at > starts_at",
+            name="ck_events_ends_after_start",
         ),
+        Index("ix_events_bar_id", "bar_id"),
+        Index("ix_events_starts_at", "starts_at"),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    guest_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    booking_date: Mapped[date] = mapped_column(Date, nullable=False)
-    booking_time: Mapped[time] = mapped_column(Time, nullable=False)
-    status: Mapped[str] = mapped_column(String, nullable=False)
-    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bar_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bars.id", ondelete="SET NULL"), nullable=True
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    location: Mapped[str | None] = mapped_column(String(200))
+    image_url: Mapped[str | None] = mapped_column(String(2048))
+    is_published: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
-    user: Mapped["User"] = relationship(back_populates="bookings")
+    bar: Mapped[Bar | None] = relationship(back_populates="events")
 
 
-class Review(Base):
-    __tablename__ = "reviews"
+class Vacancy(Base):
+    __tablename__ = "vacancies"
+    __table_args__ = (Index("ix_vacancies_bar_id", "bar_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bar_id: Mapped[int | None] = mapped_column(
+        ForeignKey("bars.id", ondelete="SET NULL"), nullable=True
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    employment_type: Mapped[str | None] = mapped_column(String(100))
+    salary: Mapped[str | None] = mapped_column(String(200))
+    contact_email: Mapped[str | None] = mapped_column(String(320))
+    is_published: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    bar: Mapped[Bar | None] = relationship(back_populates="vacancies")
+
+
+class LoyaltyInfo(Base):
+    __tablename__ = "loyalty_info"
     __table_args__ = (
-        CheckConstraint("rating BETWEEN 1 AND 5", name="ck_reviews_rating_range"),
+        UniqueConstraint("key", name="uq_loyalty_info_key"),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    rating: Mapped[int] = mapped_column(Integer, nullable=False)
-    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(100), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    terms_url: Mapped[str | None] = mapped_column(String(2048))
+    is_published: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, server_default=func.now()
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-
-    user: Mapped["User"] = relationship(back_populates="reviews")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
