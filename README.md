@@ -1,45 +1,126 @@
-# Manufaktura Network Hub API
+# Рыбалтика — Telegram Mini App
 
-Backend API for the bar network hub: bar website links, events, vacancies, and
-loyalty-program information.
+Готовый модуль просмотра меню: **категории → блюда → карточка блюда**.
+UI/UX и клиентская часть: Кузнецов Семён. Интеграционная часть для совместной
+работы с Силантьевым Александром и Пивоваровым Кириллом.
 
-## Configuration
+## Сначала просто запусти
 
-Set the database variables already used by the project in `.env`. Also set
-`ADMIN_API_TOKEN` to a random secret of at least 32 characters. Keep this value
-private; it grants access to all administrative operations.
+Нужен Python 3.11 или новее. Открой терминал **в папке этого проекта**.
 
-The database schema is upgraded to the latest Alembic revision when the
-application starts.
+Windows PowerShell:
 
-## Public endpoints
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe run_demo.py
+```
 
-- `GET /bars` — published bar links.
-- `GET /events` — published upcoming events. Supports `bar_id`,
-  `upcoming_only`, `offset`, and `limit` query parameters.
-- `GET /events/{event_id}` — one published event.
-- `GET /vacancies` — published vacancies.
-- `GET /loyalty` — published loyalty-program information.
+macOS / Linux:
 
-List endpoints support `offset` and `limit` (maximum 100).
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python run_demo.py
+```
 
-## Administrative endpoints
+Открой:
 
-All `/admin` endpoints require
-`Authorization: Bearer <ADMIN_API_TOKEN>`. For each resource below, the API
-provides `GET` collection/item, `POST` collection, `PATCH` item, and `DELETE`
-item operations:
+- **http://127.0.0.1:8000** — работающее приложение;
+- **http://127.0.0.1:8000/design** — три макета и пользовательский сценарий;
+- **http://127.0.0.1:8000/docs** — документация и интерактивная проверка API.
 
-- `/admin/bars`
-- `/admin/events`
-- `/admin/vacancies`
-- `/admin/loyalty`
+Остановить сервер: `Ctrl+C`. Для повторного запуска нужна только последняя
+команда. Устанавливать Node.js, настраивать S3, регистрировать бота и запускать
+PostgreSQL для демонстрации не нужно.
 
-Administrative collection endpoints support `offset` and `limit`; records are
-created as drafts by default and become publicly readable when
-`is_published` is set to `true`.
+`run_demo.py` явно включает DEMO_MODE: создаёт локальный `demo.db` с 5 категориями
+и 8 блюдами. Браузер делает настоящие HTTP-запросы в FastAPI, сервер читает SQLite.
+Массивы блюд во frontend не зашиты. Демоданные добавляются только в пустую базу
+деморежима. Чтобы сбросить их, останови демосервер и удали только `demo.db`.
+Это **пример меню**, а не реальные цены, составы и фотографии ресторана.
 
-Request validation failures return `422`, missing records return `404`,
-duplicate keys or invalid references return `409`, and missing/invalid admin
-token configuration returns `503`; missing or invalid bearer credentials
-return `401`.
+## Что вообще было в исходном проекте
+
+В архиве была ветка `front`, но файлов интерфейса в ней ещё не было.
+Уже имелись FastAPI, модели PostgreSQL, миграция Alembic, чтение/создание блюд
+и загрузка изображений в S3. README был пустой. Имя проекта содержит `tg-bot`,
+но работающего обработчика `/start` в исходном архиве нет.
+
+- **Frontend** — то, что человек видит в Telegram: HTML, CSS и JavaScript.
+- **Backend** — Python-сервер, который принимает запросы и читает базу.
+- **REST API** — согласованные адреса, по которым frontend просит данные.
+- **Mini App** — тот же web-интерфейс, открытый внутри Telegram.
+
+При нажатии категории браузер вызывает `GET /menu?category_id=1`.
+FastAPI выбирает доступные блюда из базы и возвращает JSON. JavaScript
+рисует список. Нажатие блюда вызывает `GET /menu/dishes/1` и открывает карточку.
+
+## Где что менять
+
+| Файл | За что отвечает |
+|---|---|
+| `frontend/index.html` | Оболочка приложения и подключение Telegram SDK |
+| `frontend/assets/styles.css` | Цвета, сетка, размеры, мобильная и тёмная темы |
+| `frontend/assets/app.js` | Переходы, запросы, поиск, состояния, Telegram BackButton |
+| `frontend/assets/config.js` | Адрес API и таймаут запроса |
+| `frontend/design.html` | Отдельные статические макеты трёх экранов |
+| `app/api/routers/menu.py` | HTTP-обработчики меню и категорий |
+| `app/api/schemas/menu.py` | Формат JSON-ответов |
+| `app/db/model.py` | Таблицы базы данных; сохранены исходные модели |
+| `app/main.py` | Запуск сервера, подключение базы и раздача frontend |
+| `app/demo.py` | Только демонстрационные блюда |
+| `docs/UI-UX.md` | Описание макетов, сценариев и состояний |
+| `docs/API.md` | Контракт интеграции для команды |
+| `docs/TESTING.md` | Проверки и сценарий показа |
+
+Сборщик не нужен: интерфейс написан на обычном JavaScript. Сервер отдаёт frontend
+и API с одного адреса, поэтому в стандартном запуске нет проблем с CORS.
+
+## Запуск с существующим PostgreSQL / Docker
+
+1. Скопируй `.env.example` в `.env` и задай свои DB-параметры.
+   В Windows: `Copy-Item .env.example .env`, в Linux/macOS: `cp .env.example .env`.
+2. Оставь `DEMO_MODE=false`. В Docker `DB_HOST` автоматически заменяется на `db`.
+3. Выполни `docker compose up --build`.
+4. Открой http://localhost:8000. Миграция исходного проекта применяется при старте.
+
+Деморежим не заполняет PostgreSQL. В пустой рабочей базе интерфейс честно покажет,
+что меню пока нет. Категории и блюда должны внести участники Backend; пример
+SQL для локальной учебной базы находится в `docs/API.md`.
+
+Если PostgreSQL уже запущен вне Docker, установи зависимости, настрой `.env` и
+выполни `python -m app` (тем Python, куда установлены зависимости).
+
+## Как открыть именно в Telegram
+
+1. Размести сервер на хостинге с **HTTPS**, PostgreSQL и переменными из `.env`.
+2. В @BotFather выбери своего бота, настройки Menu Button и укажи HTTPS-адрес
+   корня приложения, например `https://your-domain.example/`.
+3. Открой бота и нажми кнопку меню. Проверь переходы и системную кнопку назад.
+
+Приложение вызывает `Telegram.WebApp.ready()` и `expand()`, поддерживает
+BackButton, изменение темы и безопасные отступы. В обычном браузере оно тоже работает.
+Официальная документация: https://core.telegram.org/bots/webapps
+
+Для просмотра публичного меню авторизация пользователя не требуется.
+`initDataUnsafe` не используется для доверенных операций. Заказы, платежи,
+бронирование, проверка Telegram initData и админка не входят в этот модуль.
+Исходные POST `/menu/dishes` и `/images/upload` сохранены; в исходном коде они
+не защищены авторизацией. Перед публичным размещением команда Backend должна
+закрыть операции записи авторизацией или ограничить их на reverse proxy.
+Не помещай токен бота и ключи S3 в JavaScript.
+
+## Что показать на сдаче
+
+1. `/design`: расположение элементов трёх экранов и сценарий просмотра.
+2. Главную страницу: категории → «Рыба и морепродукты» → «Лосось на гриле».
+3. Фото, цену, состав, возвращение к списку, поиск «лосось».
+4. Блюдо без фото — аккуратная заглушка; несуществующее блюдо — экран 404.
+5. DevTools → Network: запросы `/menu/categories`, `/menu?category_id=1`,
+   `/menu/dishes/1`; останови сервер и покажи ошибку и кнопку повторения.
+6. Расскажи: «Frontend получает JSON через REST API. Для демонстрации используется
+   SQLite; основной проект сохраняет PostgreSQL и Alembic».
+
+Автоматические тесты: установи `requirements-dev.txt`, выполни `python -m pytest -q`.
+Подробности браузерной проверки — в `docs/TESTING.md`.
