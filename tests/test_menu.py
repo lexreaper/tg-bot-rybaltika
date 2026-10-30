@@ -6,16 +6,6 @@ from app.main import app
 from app.db.session import get_session
 
 
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv('DEMO_MODE', 'true')
-    monkeypatch.setenv('DEMO_DATABASE_URL', f'sqlite+aiosqlite:///{tmp_path}/test.db')
-    get_app_settings.cache_clear()
-    with TestClient(app) as client:
-        yield client
-    app.dependency_overrides.clear()
-    get_app_settings.cache_clear()
-
 
 def test_user_journey(client):
     assert client.get('/').status_code == 200

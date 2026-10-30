@@ -15,6 +15,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.settings import get_app_settings
 from app.db.model import Base
 from app.demo import seed_demo
+from app.demo_content import seed_demo_content
+from app.api.routers.content import router as content_router
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -51,6 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         if app_settings.demo_mode:
             async with app.state.session_factory() as session:
                 await seed_demo(session)
+                await seed_demo_content(session)
         yield
     finally:
         await engine.dispose()
@@ -59,19 +62,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(title="Rybaltika API", lifespan=lifespan)
 app.include_router(menu_router)
 app.include_router(images_router)
+app.include_router(content_router)
 
 
 # Serve UI and API from one origin: no frontend build or CORS needed locally.
 frontend = Path(__file__).resolve().parent.parent / "frontend"
 app.add_middleware(CORSMiddleware, allow_origins=get_app_settings().cors_origins,
-                   allow_methods=["GET"], allow_headers=["Content-Type"])
+                   allow_methods=["GET", "PUT"], allow_headers=["Content-Type", "X-Admin-Token"])
 app.mount("/assets", StaticFiles(directory=frontend / "assets"), name="assets")
 
 
 @app.exception_handler(SQLAlchemyError)
 async def database_error(request: Request, exc: SQLAlchemyError):
     logging.getLogger(__name__).error("Database request failed", exc_info=exc)
-    return JSONResponse(status_code=503, content={"detail": "Меню временно недоступно. Попробуйте позже."})
+    return JSONResponse(status_code=503, content={"detail": "Данные временно недоступны. Попробуйте позже."})
 
 
 @app.get("/", include_in_schema=False)
@@ -87,3 +91,8 @@ async def app_config():
 @app.get("/design", include_in_schema=False)
 async def design():
     return FileResponse(frontend / "design.html")
+
+
+@app.get('/admin', include_in_schema=False)
+async def content_admin():
+    return FileResponse(frontend / 'admin.html', headers={'Cache-Control': 'no-store'})

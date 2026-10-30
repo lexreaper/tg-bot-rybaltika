@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.db.config import get_database_settings
 from app.db.model import Base
+from app.db import content  # Register Sprint 2 metadata for Alembic.
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

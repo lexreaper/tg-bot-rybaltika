@@ -1,3 +1,6 @@
-// Empty string uses the same origin as the UI (recommended).
-// For a separate backend set its HTTPS origin and configure CORS_ORIGINS there.
-window.APP_CONFIG = { apiBaseUrl: '', requestTimeoutMs: 10000 };
+// UI and API use the same origin by default. Change paths here if the team API differs.
+window.APP_CONFIG = {
+  apiBaseUrl: '',
+  requestTimeoutMs: 10000,
+  endpoints: {events:'/events', vacancies:'/vacancies', loyalty:'/loyalty'},
+};

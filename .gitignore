@@ -6,3 +6,9 @@ demo.db
 .pytest_cache/
 node_modules/
 test-results/
+
+# Local tunnel tools and local database state
+*.exe
+*.db
+*.db-shm
+*.db-wal

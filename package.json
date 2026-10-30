@@ -1,6 +1,11 @@
 {
   "name": "rybaltika-menu-checks",
   "private": true,
-  "scripts": {"test:browser": "node tests/browser.cjs"},
-  "devDependencies": {"playwright": "^1.61.0"}
+  "scripts": {
+    "test:browser": "node tests/browser.cjs",
+    "test:browser:sprint2": "node tests/browser-sprint2.cjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.0"
+  }
 }
